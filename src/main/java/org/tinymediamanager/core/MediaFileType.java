@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,6 +48,8 @@ public enum MediaFileType {
   EXTRAFANART, // gfx
   EXTRATHUMB, // gfx
   GRAPHIC, // NO gfx (since not a searchable type)
+  MEDIAINFO, // xxx-mediainfo.xml
+  VSMETA, // xxx.ext.vsmeta Synology
   TEXT, // various text infos, like BDinfo.txt or others...
   UNKNOWN;
   // @formatter:on

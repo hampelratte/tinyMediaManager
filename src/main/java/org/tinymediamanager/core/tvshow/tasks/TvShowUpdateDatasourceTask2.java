@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,6 +52,7 @@ import org.tinymediamanager.core.Message.MessageLevel;
 import org.tinymediamanager.core.MessageManager;
 import org.tinymediamanager.core.Utils;
 import org.tinymediamanager.core.entities.MediaFile;
+import org.tinymediamanager.core.threading.TmmTaskManager;
 import org.tinymediamanager.core.threading.TmmThreadPool;
 import org.tinymediamanager.core.tvshow.TvShowEpisodeAndSeasonParser;
 import org.tinymediamanager.core.tvshow.TvShowEpisodeAndSeasonParser.EpisodeMatchingResult;
@@ -61,6 +62,7 @@ import org.tinymediamanager.core.tvshow.connector.TvShowToXbmcNfoConnector;
 import org.tinymediamanager.core.tvshow.entities.TvShow;
 import org.tinymediamanager.core.tvshow.entities.TvShowEpisode;
 import org.tinymediamanager.scraper.util.ParserUtils;
+import org.tinymediamanager.thirdparty.VSMeta;
 import org.tinymediamanager.ui.UTF8Control;
 
 import com.sun.jna.Platform;
@@ -138,6 +140,9 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
       MessageManager.instance.pushMessage(new Message(MessageLevel.ERROR, "update.datasource", "update.datasource.nonespecified"));
       return;
     }
+    preDir = 0;
+    postDir = 0;
+    visFile = 0;
 
     try {
       StopWatch stopWatch = new StopWatch();
@@ -156,6 +161,7 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
       if (tvShowFolders.isEmpty()) {
         // update selected data sources
         for (String ds : dataSources) {
+          LOGGER.info("Start UDS on datasource: " + ds);
           Path dsAsPath = Paths.get(ds);
 
           // first of all check if the DS is available; we can take the
@@ -432,6 +438,7 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
   private class FindTvShowTask implements Callable<Object> {
     private Path showDir    = null;
     private Path datasource = null;
+    private long uniqueId;
 
     /**
      * Instantiates a new find tv show task.
@@ -444,10 +451,18 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
     public FindTvShowTask(Path showDir, Path datasource) {
       this.showDir = showDir;
       this.datasource = datasource;
+      this.uniqueId = TmmTaskManager.getInstance().GLOB_THRD_CNT.incrementAndGet();
     }
 
     @Override
     public String call() throws Exception {
+      String name = Thread.currentThread().getName();
+      if (!name.contains("-G")) {
+        name = name + "-G0";
+      }
+      name = name.replaceAll("\\-G\\d+", "-G" + uniqueId);
+      Thread.currentThread().setName(name);
+
       LOGGER.info("start parsing " + showDir);
       if (showDir.getFileName().toString().matches(skipRegex)) {
         LOGGER.debug("Skipping dir: " + showDir);
@@ -455,6 +470,10 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
       }
 
       HashSet<Path> allFiles = getAllFilesRecursive(showDir, Integer.MAX_VALUE);
+      if (allFiles != null && allFiles.isEmpty()) {
+        LOGGER.info("skip empty directory " + showDir);
+        return "";
+      }
       filesFound.add(showDir.toAbsolutePath()); // our global cache
       filesFound.addAll(allFiles); // our global cache
 
@@ -466,6 +485,11 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
         }
       }
       allFiles.clear();
+
+      if (getMediaFiles(mfs, MediaFileType.VIDEO).size() == 0) {
+        LOGGER.info("no video file found in directory " + showDir);
+        return "";
+      }
 
       // ******************************
       // STEP 1 - get (or create) TvShow object
@@ -533,17 +557,18 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
         else {
           // normal episode file - get all same named files
           String basename = FilenameUtils.getBaseName(mf.getFilenameWithoutStacking());
+          LOGGER.trace("UDS: basename: " + basename);
           for (MediaFile em : mfs) {
             String emBasename = FilenameUtils.getBaseName(em.getFilename());
             String epNameRegexp = Pattern.quote(basename) + "[\\s.,_-].*";
             // same named files or thumb files
             if (emBasename.equals(basename) || emBasename.matches(epNameRegexp)) {
-              // we found some graphics named like the episode - define them as
-              // thumb here
+              // we found some graphics named like the episode - define them as thumb here
               if (em.getType() == MediaFileType.GRAPHIC) {
                 em.setType(MediaFileType.THUMB);
               }
               epFiles.add(em);
+              LOGGER.trace("UDS: found matching MF: " + em);
             }
           }
         }
@@ -557,6 +582,14 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
           // ******************************
           // STEP 2.1.1 - parse EP NFO (has precedence over files)
           // ******************************
+          MediaFile meta = getMediaFile(epFiles, MediaFileType.VSMETA);
+          TvShowEpisode vsMetaEP = null;
+          if (meta != null) {
+            VSMeta vsmeta = new VSMeta();
+            vsmeta.parseFile(meta.getFileAsPath());
+            vsMetaEP = vsmeta.getTvShowEpisode();
+          }
+
           MediaFile epNfo = getMediaFile(epFiles, MediaFileType.NFO);
           if (epNfo != null) {
             LOGGER.info("found episode NFO - try to parse '" + showDir.relativize(epNfo.getFileAsPath()) + "'");
@@ -593,13 +626,14 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
                 else {
                   episode.setMultiEpisode(false);
                 }
+                episode.merge(vsMetaEP); // merge VSmeta infos
 
                 episode.saveToDb();
                 tvShow.addEpisode(episode);
               }
               continue; // with next video MF
             }
-          }
+          } // end parse NFO
 
           // ******************************
           // STEP 2.1.2 - no NFO? try to parse episode/season
@@ -620,8 +654,8 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
               continue;
             }
           }
-          if (result.episodes.size() == 0) {
-            // try to parse out episodes/season from parent directory
+          if (result.episodes.size() == 0 && result.date == null) {
+            // try to parse out episodes/season from parent directory (but only if we haven't detected an ared date!)
             result = TvShowEpisodeAndSeasonParser.detectEpisodeFromDirectory(showDir.toFile(), tvShow.getPath());
           }
           if (result.season == -1) {
@@ -670,6 +704,7 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
               else {
                 episode.setMultiEpisode(false);
               }
+              episode.merge(vsMetaEP); // merge VSmeta infos
               episode.saveToDb();
               tvShow.addEpisode(episode);
             }
@@ -707,6 +742,7 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
               episode.setMediaSource(MediaSource.parseMediaSource(mf.getFile().getAbsolutePath()));
             }
             episode.setNewlyAdded(true);
+            episode.merge(vsMetaEP); // merge VSmeta infos
             episode.saveToDb();
             tvShow.addEpisode(episode);
           }
@@ -736,7 +772,23 @@ public class TvShowUpdateDatasourceTask2 extends TmmThreadPool {
       // remove all used episode MFs, rest must be show MFs ;)
       // ******************************
       mfs.removeAll(tvShow.getEpisodesMediaFiles()); // remove EP files
-      tvShow.addToMediaFiles(mfs); // add remaining
+
+      // tvShow.addToMediaFiles(mfs); // add remaining
+      // not so fast - try to parse S/E from remaining first!
+      for (MediaFile mf : mfs) {
+        String relativePath = showDir.relativize(mf.getFileAsPath()).toString();
+        EpisodeMatchingResult result = TvShowEpisodeAndSeasonParser.detectEpisodeFromFilenameAlternative(relativePath, tvShow.getTitle());
+        if (result.season > 0 && !result.episodes.isEmpty()) {
+          for (int epnr : result.episodes) {
+            TvShowEpisode ep = tvShow.getEpisode(result.season, epnr);
+            if (ep != null && mf.getType() != MediaFileType.SEASON_POSTER) {
+              ep.addToMediaFiles(mf);
+            }
+          }
+        }
+      }
+      mfs.removeAll(tvShow.getEpisodesMediaFiles()); // remove EP files
+      tvShow.addToMediaFiles(mfs); // now add remaining
 
       // fill season posters map
       for (MediaFile mf : getMediaFiles(mfs, MediaFileType.SEASON_POSTER)) {

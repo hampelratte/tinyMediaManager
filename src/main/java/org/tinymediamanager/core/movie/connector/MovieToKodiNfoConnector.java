@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import java.net.URLEncoder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.text.Format;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -71,6 +70,7 @@ import org.tinymediamanager.core.Utils;
 import org.tinymediamanager.core.entities.MediaFile;
 import org.tinymediamanager.core.entities.MediaFileAudioStream;
 import org.tinymediamanager.core.entities.MediaFileSubtitle;
+import org.tinymediamanager.core.movie.MovieEdition;
 import org.tinymediamanager.core.movie.MovieHelpers;
 import org.tinymediamanager.core.movie.MovieList;
 import org.tinymediamanager.core.movie.MovieModuleManager;
@@ -97,7 +97,7 @@ import org.tinymediamanager.scraper.util.ParserUtils;
 @XmlType(propOrder = { "title", "originaltitle", "set", "sorttitle", "rating", "epbookmark", "year", "top250", "votes", "outline", "plot", "tagline",
     "runtime", "thumb", "fanart", "mpaa", "certification", "id", "ids", "tmdbId", "trailer", "country", "premiered", "status", "code", "aired",
     "fileinfo", "watched", "playcount", "genres", "studio", "credits", "director", "tags", "actors", "producers", "resume", "lastplayed", "dateadded",
-    "keywords", "poster", "url", "languages", "source", "unsupportedElements" })
+    "keywords", "poster", "url", "languages", "source", "edition", "unsupportedElements" })
 public class MovieToKodiNfoConnector {
   private static final Logger  LOGGER                = LoggerFactory.getLogger(MovieToKodiNfoConnector.class);
   private static final Pattern PATTERN_NFO_MOVIE_TAG = Pattern.compile("<movie.*?>");
@@ -144,6 +144,7 @@ public class MovieToKodiNfoConnector {
   private List<Object>         producers;
   public String                languages;
   public String                source;
+  public String                edition;
 
   @XmlAnyElement(lax = true)
   private List<Object>         unsupportedElements;
@@ -309,7 +310,9 @@ public class MovieToKodiNfoConnector {
     }
 
     kodi.id = movie.getImdbId();
-    kodi.tmdbId = movie.getTmdbId();
+    if (movie.getTmdbId() != 0) {
+      kodi.tmdbId = movie.getTmdbId();
+    }
 
     kodi.ids.putAll(movie.getIds());
 
@@ -406,6 +409,9 @@ public class MovieToKodiNfoConnector {
     kodi.sorttitle = movie.getSortTitle();
     if (movie.getMediaSource() != MediaSource.UNKNOWN) {
       kodi.source = movie.getMediaSource().name();
+    }
+    if (movie.getEdition() != MovieEdition.NONE) {
+      kodi.edition = movie.getEdition().getTitle();
     }
 
     // fileinfo
@@ -549,11 +555,7 @@ public class MovieToKodiNfoConnector {
       else {
         movie.setTop250(0);
       }
-      try {
-        movie.setReleaseDate(kodi.premiered);
-      }
-      catch (ParseException e) {
-      }
+      movie.setReleaseDate(kodi.premiered);
       movie.setPlot(kodi.plot);
       movie.setTagline(kodi.tagline);
       try {
@@ -597,7 +599,7 @@ public class MovieToKodiNfoConnector {
       if (StringUtils.isBlank(movie.getImdbId())) {
         movie.setImdbId(kodi.id);
       }
-      if (movie.getTmdbId() == 0) {
+      if (movie.getTmdbId() == 0 && kodi.tmdbId != 0) {
         movie.setTmdbId(kodi.tmdbId);
       }
 
@@ -652,6 +654,11 @@ public class MovieToKodiNfoConnector {
         }
         catch (Exception ignored) {
         }
+      }
+
+      if (StringUtils.isNotBlank(kodi.edition)) {
+        MovieEdition edition = MovieEdition.getMovieEditionFromString(kodi.edition);
+        movie.setEdition(edition);
       }
 
       // movieset

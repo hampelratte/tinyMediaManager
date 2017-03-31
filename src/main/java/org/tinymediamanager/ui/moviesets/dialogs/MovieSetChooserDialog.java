@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -386,7 +386,7 @@ public class MovieSetChooserDialog extends TmmDialog implements ActionListener {
               if (movie.getMovieSet() != null) {
                 // unassign movie from set
                 MovieSet mSet = movie.getMovieSet();
-                mSet.removeMovie(movie);
+                mSet.removeMovie(movie, true);
               }
 
               movie.setMovieSet(movieSetToScrape);

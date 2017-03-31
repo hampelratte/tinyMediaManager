@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -769,9 +769,10 @@ public class TvShowEditorDialog extends TmmDialog {
       // first round -> add existing ids
       for (MediaId id : ids) {
         // only process non empty ids
-        if (StringUtils.isAnyBlank(id.key, id.value)) {
-          continue;
-        }
+        // changed; if empty/0/null value gets set, it is removed in setter ;)
+        // if (StringUtils.isAnyBlank(id.key, id.value)) {
+        // continue;
+        // }
         // first try to cast it into an Integer
         try {
           Integer value = Integer.parseInt(id.value);

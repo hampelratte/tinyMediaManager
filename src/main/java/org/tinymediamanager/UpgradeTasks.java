@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,11 +17,17 @@ package org.tinymediamanager;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Map.Entry;
 
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -29,12 +35,15 @@ import org.apache.commons.lang3.time.DateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.tinymediamanager.core.CertificationStyle;
+import org.tinymediamanager.core.Constants;
 import org.tinymediamanager.core.MediaFileType;
 import org.tinymediamanager.core.MediaSource;
 import org.tinymediamanager.core.Settings;
 import org.tinymediamanager.core.Utils;
+import org.tinymediamanager.core.entities.MediaEntity;
 import org.tinymediamanager.core.entities.MediaFile;
 import org.tinymediamanager.core.entities.MediaFileSubtitle;
+import org.tinymediamanager.core.entities.Person;
 import org.tinymediamanager.core.movie.MovieList;
 import org.tinymediamanager.core.movie.MovieModuleManager;
 import org.tinymediamanager.core.movie.MovieSetArtworkHelper;
@@ -44,6 +53,7 @@ import org.tinymediamanager.core.movie.entities.MovieActor;
 import org.tinymediamanager.core.movie.entities.MovieProducer;
 import org.tinymediamanager.core.movie.entities.MovieSet;
 import org.tinymediamanager.core.tvshow.TvShowList;
+import org.tinymediamanager.core.tvshow.TvShowModuleManager;
 import org.tinymediamanager.core.tvshow.entities.TvShow;
 import org.tinymediamanager.core.tvshow.entities.TvShowActor;
 import org.tinymediamanager.core.tvshow.entities.TvShowEpisode;
@@ -96,6 +106,20 @@ public class UpgradeTasks {
               FileUtils.deleteQuietly(subdir);
             }
           }
+        }
+      }
+    }
+
+    // upgrade to v2.9.3
+    if (StrgUtils.compareVersion(v, "2.9.3") < 0) {
+      LOGGER.info("Performing upgrade tasks to version 2.9.3");
+      // rename data/tmm_ui.prop to data/tmm.prop
+      Path uiProp = Paths.get(Settings.getInstance().getSettingsFolder(), "tmm_ui.prop");
+      if (Files.exists(uiProp)) {
+        try {
+          FileUtils.moveFile(uiProp.toFile(), new File(Settings.getInstance().getSettingsFolder(), "tmm.prop"));
+        }
+        catch (Exception ignored) {
         }
       }
     }
@@ -410,6 +434,139 @@ public class UpgradeTasks {
         }
       }
     }
+
+    // upgrade to v2.9.2
+    if (StrgUtils.compareVersion(v, "2.9.2") < 0) {
+      LOGGER.info("Performing database upgrade tasks to version 2.9.2");
+
+      for (Movie movie : movieList.getMovies()) {
+        boolean changed = removeEmptyIds(movie);
+
+        // removing movieset artwork from movie mfs
+        List<MediaFile> mfs = new ArrayList<>(movie.getMediaFiles());
+        for (MediaFile mf : mfs) {
+          if (mf.isGraphic() && mf.getFilename().startsWith("movieset-")) {
+            movie.removeFromMediaFiles(mf);
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          movie.saveToDb();
+        }
+      }
+      for (TvShow show : tvShowList.getTvShows()) {
+        boolean changed = removeEmptyIds(show);
+        if (changed) {
+          show.saveToDb();
+        }
+        for (TvShowEpisode episode : show.getEpisodes()) {
+          changed = removeEmptyIds(episode);
+          if (changed) {
+            episode.saveToDb();
+          }
+        }
+      }
+
+      // delete all abandoned trash folder
+      if (Globals.settings.isDeleteTrashOnExit()) {
+        for (String datasource : MovieModuleManager.MOVIE_SETTINGS.getMovieDataSource()) {
+          Path ds = Paths.get(datasource);
+          if (Files.exists(ds)) {
+            try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(ds)) {
+              for (Path path : directoryStream) {
+                if (Files.isDirectory(path) && ds.relativize(path).toString().startsWith(Constants.BACKUP_FOLDER)) {
+                  Utils.deleteDirectoryRecursive(path);
+                }
+              }
+            }
+            catch (IOException ex) {
+            }
+          }
+        }
+        for (String datasource : TvShowModuleManager.SETTINGS.getTvShowDataSource()) {
+          Path ds = Paths.get(datasource);
+          if (Files.exists(ds)) {
+            try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(ds)) {
+              for (Path path : directoryStream) {
+                if (Files.isDirectory(path) && ds.relativize(path).toString().startsWith(Constants.BACKUP_FOLDER)) {
+                  Utils.deleteDirectoryRecursive(path);
+                }
+              }
+            }
+            catch (IOException ex) {
+            }
+          }
+        }
+      }
+    }
+
+    // upgrade to v2.9.3
+    if (StrgUtils.compareVersion(v, "2.9.3") < 0) {
+      LOGGER.info("Performing database upgrade tasks to version 2.9.3");
+
+      // rewrite all NFOs to get rid of null strings
+      // and update all actor paths
+      for (Movie movie : movieList.getMovies()) {
+        for (Person person : movie.getActors()) {
+          person.setEntityRoot(movie.getPathNIO());
+        }
+        for (Person person : movie.getProducers()) {
+          person.setEntityRoot(movie.getPathNIO());
+        }
+        movie.saveToDb();
+      }
+      for (MovieSet movieSet : movieList.getMovieSetList()) {
+        movieSet.saveToDb();
+      }
+
+      for (TvShow show : tvShowList.getTvShows()) {
+        for (Person person : show.getActors()) {
+          person.setEntityRoot(show.getPathNIO());
+        }
+        show.saveToDb();
+        for (TvShowEpisode episode : show.getEpisodes()) {
+          for (Person person : episode.getGuests()) {
+            person.setEntityRoot(episode.getPathNIO());
+          }
+          episode.saveToDb();
+        }
+      }
+    }
+  }
+
+  /**
+   * Cleanup; removes all empty IDs from MediaEntities
+   * 
+   * @param me
+   * @return
+   */
+  private static boolean removeEmptyIds(MediaEntity me) {
+    boolean changed = false;
+
+    Map<String, Object> ids = me.getIds();
+    Iterator<Entry<String, Object>> it = ids.entrySet().iterator();
+    while (it.hasNext()) {
+      Entry<String, Object> pair = it.next();
+      if (pair.getValue() instanceof Integer) {
+        Integer i = (Integer) pair.getValue();
+        if (i == null || i == 0) {
+          LOGGER.debug("Removing empty ID: " + pair.getKey() + " (" + me.getTitle() + ")");
+          it.remove();
+          changed = true;
+        }
+      }
+      else if (pair.getValue() instanceof String) {
+        String i = (String) pair.getValue();
+        if (StringUtils.isEmpty(i)) {
+          LOGGER.debug("Removing empty ID: " + pair.getKey() + " (" + me.getTitle() + ")");
+          it.remove();
+          changed = true;
+        }
+      }
+    }
+
+    return changed;
   }
 
   /**

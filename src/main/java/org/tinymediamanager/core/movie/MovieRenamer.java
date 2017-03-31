@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,7 +59,8 @@ import org.tinymediamanager.scraper.util.StrgUtils;
  * @author Manuel Laggner / Myron Boyle
  */
 public class MovieRenamer {
-  private final static Logger LOGGER = LoggerFactory.getLogger(MovieRenamer.class);
+  private static final Logger  LOGGER   = LoggerFactory.getLogger(MovieRenamer.class);
+  private static final Pattern ALPHANUM = Pattern.compile(".*?([a-zA-Z0-9]{1}).*$");  // to not use posix
 
   private static void renameSubtitles(Movie m) {
     // build language lists
@@ -267,11 +268,18 @@ public class MovieRenamer {
           // ## 2) MMD movie -> normal movie (upgrade)
           // ######################################################################
           LOGGER.trace("Upgrading movie into it's own dir :) " + newPathname);
-          try {
-            Files.createDirectories(destDir);
+          if (!Files.exists(destDir)) {
+            try {
+              Files.createDirectories(destDir);
+            }
+            catch (Exception e) {
+              LOGGER.error("Could not create destination '" + destDir + "' - NOT renaming folder ('upgrade' movie)");
+              // well, better not to rename
+              return;
+            }
           }
-          catch (Exception e) {
-            LOGGER.error("Could not create destination '" + destDir + "' - NOT renaming folder ('upgrade' movie)");
+          else {
+            LOGGER.error("Directory already exists! '" + destDir + "' - NOT renaming folder ('upgrade' movie)");
             // well, better not to rename
             return;
           }
@@ -669,6 +677,38 @@ public class MovieRenamer {
         newFiles.add(sample);
         break;
 
+      case MEDIAINFO:
+        MediaFile mi = new MediaFile(mf);
+        if (movie.isDisc()) {
+          // hmm.. dunno, keep at least 1:1
+          mi.replacePathForRenamedFolder(movie.getPathNIO(), newMovieDir);
+          newFiles.add(mi);
+        }
+        else {
+          newFilename += getStackingString(mf);
+          newFilename += "-mediainfo." + mf.getExtension();
+          mi.setFile(newMovieDir.resolve(newFilename));
+          newFiles.add(mi);
+        }
+        break;
+
+      case VSMETA:
+        MediaFile meta = new MediaFile(mf);
+        if (movie.isDisc()) {
+          // hmm.. no vsmeta created? keep 1:1 (although this will be never called)
+          meta.setFile(newMovieDir.resolve(meta.getFilename()));
+          newFiles.add(meta);
+        }
+        else {
+          newFilename += getStackingString(mf);
+          // HACK: get video extension from "old" name, eg video.avi.vsmeta
+          String videoExt = FilenameUtils.getExtension(FilenameUtils.getBaseName(mf.getFilename()));
+          newFilename += "." + videoExt + ".vsmeta";
+          meta.setFile(newMovieDir.resolve(newFilename));
+          newFiles.add(meta);
+        }
+        break;
+
       case SUBTITLE:
         List<MediaFileSubtitle> mfsl = mf.getSubtitles();
 
@@ -982,10 +1022,10 @@ public class MovieRenamer {
         ret = movie.getTitle();
         break;
       case "$1":
-        ret = StringUtils.isNotBlank(movie.getTitle()) ? movie.getTitle().substring(0, 1).toUpperCase(Locale.ROOT) : "";
+        ret = getFirstAlphaNum(movie.getTitle());
         break;
       case "$2":
-        ret = StringUtils.isNotBlank(movie.getTitleSortable()) ? movie.getTitleSortable().substring(0, 1).toUpperCase(Locale.ROOT) : "";
+        ret = getFirstAlphaNum(movie.getTitleSortable());
         break;
       case "$Y":
         ret = movie.getYear().equals("0") ? "" : movie.getYear();
@@ -1063,11 +1103,31 @@ public class MovieRenamer {
           ret = String.valueOf(movie.getRating());
         }
         break;
+      case "$K":
+        if (!movie.getTags().isEmpty()) {
+          ret = movie.getTags().get(0);
+        }
       default:
         break;
     }
 
     return ret;
+  }
+
+  /**
+   * gets the first alpha-numeric character
+   * 
+   * @param text
+   * @return A-Z0-9 or empty
+   */
+  protected static String getFirstAlphaNum(String text) {
+    if (StringUtils.isNotBlank(text)) {
+      Matcher m = ALPHANUM.matcher(text);
+      if (m.find()) {
+        return m.group(1).toUpperCase(Locale.ROOT);
+      }
+    }
+    return ""; // text empty/null/no alphanum
   }
 
   /**
@@ -1144,8 +1204,10 @@ public class MovieRenamer {
       newDestination = StrgUtils.convertToAscii(newDestination, false);
     }
 
-    // replace trailing dots and spaces
-    newDestination = newDestination.replaceAll("[ \\.]+$", "");
+    // replace trailing dots and spaces (filename only!)
+    if (forFilename) {
+      newDestination = newDestination.replaceAll("[ \\.]+$", "");
+    }
 
     return newDestination.trim();
   }

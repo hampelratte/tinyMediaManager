@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.tinymediamanager;
 import java.awt.AWTEvent;
 import java.awt.AlphaComposite;
 import java.awt.Color;
+import java.awt.Dialog.ModalityType;
 import java.awt.EventQueue;
 import java.awt.Font;
 import java.awt.Graphics2D;
@@ -26,7 +27,6 @@ import java.awt.GraphicsEnvironment;
 import java.awt.RenderingHints;
 import java.awt.SplashScreen;
 import java.awt.Toolkit;
-import java.awt.Dialog.ModalityType;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
@@ -60,6 +60,7 @@ import org.tinymediamanager.core.threading.TmmTaskManager;
 import org.tinymediamanager.core.tvshow.TvShowModuleManager;
 import org.tinymediamanager.scraper.util.PluginManager;
 import org.tinymediamanager.thirdparty.MediaInfoUtils;
+import org.tinymediamanager.thirdparty.upnp.Upnp;
 import org.tinymediamanager.ui.IconManager;
 import org.tinymediamanager.ui.MainWindow;
 import org.tinymediamanager.ui.TmmUILogCollector;
@@ -285,7 +286,6 @@ public class TinyMediaManager {
             updateProgress(g2, "loading TV show module", 40);
             splash.update();
           }
-
           TmmModuleManager.getInstance().registerModule(TvShowModuleManager.getInstance());
           TmmModuleManager.getInstance().enableModule(TvShowModuleManager.getInstance());
 
@@ -293,11 +293,26 @@ public class TinyMediaManager {
             updateProgress(g2, "loading plugins", 50);
             splash.update();
           }
-
           // just instantiate static - will block (takes a few secs)
           PluginManager.getInstance();
           if (ReleaseInfo.isSvnBuild()) {
             PluginManager.loadClasspathPlugins();
+          }
+
+          if (g2 != null) {
+            updateProgress(g2, "starting services", 60);
+            splash.update();
+          }
+          Upnp u = Upnp.getInstance();
+          if (Globals.settings.isUpnpShareLibrary()) {
+            u.startWebServer();
+            u.createUpnpService();
+            u.startMediaServer();
+          }
+          if (Globals.settings.isUpnpRemotePlay()) {
+            u.createUpnpService();
+            u.sendPlayerSearchRequest();
+            u.startWebServer();
           }
 
           // do upgrade tasks after database loading
@@ -484,6 +499,9 @@ public class TinyMediaManager {
 
         // extract templates, if GD has not already done
         Utils.extractTemplates();
+
+        // clean old log files
+        Utils.cleanOldLogs();
 
         // check if a .desktop file exists
         if (Platform.isLinux()) {

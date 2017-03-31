@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -80,19 +80,19 @@ import com.jgoodies.forms.layout.RowSpec;
  * @author Manuel Laggner
  */
 public class MovieSetEditorDialog extends TmmDialog {
-  private static final long           serialVersionUID    = -4446433759280691976L;
-  private static final Logger         LOGGER              = LoggerFactory.getLogger(MovieSetEditorDialog.class);
+  private static final long           serialVersionUID   = -4446433759280691976L;
+  private static final Logger         LOGGER             = LoggerFactory.getLogger(MovieSetEditorDialog.class);
   /**
    * @wbp.nls.resourceBundle messages
    */
-  private static final ResourceBundle BUNDLE              = ResourceBundle.getBundle("messages", new UTF8Control());     //$NON-NLS-1$
+  private static final ResourceBundle BUNDLE             = ResourceBundle.getBundle("messages", new UTF8Control());     //$NON-NLS-1$
 
-  private MovieList                   movieList           = MovieList.getInstance();
+  private MovieList                   movieList          = MovieList.getInstance();
   private MovieSet                    movieSetToEdit;
-  private List<Movie>                 moviesInSet         = ObservableCollections.observableList(new ArrayList<Movie>());
-  private List<Movie>                 removedMovies       = new ArrayList<>();
-  private List<MediaScraper>          artworkScrapers     = new ArrayList<>();
-  private boolean                     continueQueue       = true;
+  private List<Movie>                 moviesInSet        = ObservableCollections.observableList(new ArrayList<Movie>());
+  private List<Movie>                 removedMovies      = new ArrayList<>();
+  private List<MediaScraper>          artworkScrapers    = new ArrayList<>();
+  private boolean                     continueQueue      = true;
 
   /** UI components */
   private JTextField                  tfName;
@@ -106,11 +106,11 @@ public class MovieSetEditorDialog extends TmmDialog {
   private ImageLabel                  lblBanner;
   private ImageLabel                  lblClearart;
 
-  private final Action                actionRemoveMovie   = new RemoveMovieAction();
-  private final Action                actionOk            = new OkAction();
-  private final Action                actionCancel        = new CancelAction();
-  private final Action                actionAbort         = new AbortAction();
-  private final Action                actionSearchTmdbId  = new SwingAction();
+  private final Action                actionRemoveMovie  = new RemoveMovieAction();
+  private final Action                actionOk           = new OkAction();
+  private final Action                actionCancel       = new CancelAction();
+  private final Action                actionAbort        = new AbortAction();
+  private final Action                actionSearchTmdbId = new SwingAction();
 
   /**
    * Instantiates a new movie set editor.
@@ -480,7 +480,7 @@ public class MovieSetEditorDialog extends TmmDialog {
           movie.setMovieSet(null);
           movie.writeNFO();
           movie.saveToDb();
-          movieSetToEdit.removeMovie(movie);
+          movieSetToEdit.removeMovie(movie, true);
         }
       }
 
@@ -496,7 +496,7 @@ public class MovieSetEditorDialog extends TmmDialog {
         movie.removeFromMovieSet();
         movie.saveToDb();
         movie.writeNFO();
-        movieSetToEdit.removeMovie(movie);
+        movieSetToEdit.removeMovie(movie, true);
       }
 
       MovieList.getInstance().sortMoviesInMovieSet(movieSetToEdit);
@@ -590,7 +590,7 @@ public class MovieSetEditorDialog extends TmmDialog {
           IMovieSetMetadataProvider mp = (IMovieSetMetadataProvider) first.getMediaProvider();
 
           for (Movie movie : moviesInSet) {
-            MediaScrapeOptions options = new MediaScrapeOptions(MediaType.MOVIE_SET);
+            MediaScrapeOptions options = new MediaScrapeOptions(MediaType.MOVIE);
             if (Utils.isValidImdbId(movie.getImdbId()) || movie.getTmdbId() > 0) {
               options.setTmdbId(movie.getTmdbId());
               options.setImdbId(movie.getImdbId());

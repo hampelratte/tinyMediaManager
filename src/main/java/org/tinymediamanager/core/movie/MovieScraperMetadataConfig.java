@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,33 @@ public class MovieScraperMetadataConfig extends AbstractModelObject {
   private boolean collection    = true;
   private boolean tags          = true;
 
+  /**
+   * default constructor - true for all fields
+   */
   public MovieScraperMetadataConfig() {
+  }
+
+  /**
+   * custom constructor - set all fields to the given value
+   * 
+   * @param value
+   *          the value to set all fields to
+   */
+  public MovieScraperMetadataConfig(boolean value) {
+    title = value;
+    originalTitle = value;
+    tagline = value;
+    plot = value;
+    rating = value;
+    runtime = value;
+    year = value;
+    certification = value;
+    cast = value;
+    genres = value;
+    artwork = value;
+    trailer = value;
+    collection = value;
+    tags = value;
   }
 
   public boolean isMetadata() {

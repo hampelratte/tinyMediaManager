@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -82,13 +82,14 @@ public class MovieList extends AbstractModelObject {
   private static MovieList             instance;
 
   private final MovieSettings          movieSettings;
-  private ObservableElementList<Movie> movieList;
-  private List<MovieSet>               movieSetList       = new ArrayList<MovieSet>(0);
-  private PropertyChangeListener       tagListener;
-  private List<String>                 tagsObservable;
-  private List<String>                 videoCodecsObservable;
-  private List<String>                 audioCodecsObservable;
-  private List<Certification>          certificationsObservable;
+  private final List<Movie>            movieList;
+  private final List<MovieSet>         movieSetList;
+  private final List<String>           tagsObservable;
+  private final List<String>           videoCodecsObservable;
+  private final List<String>           audioCodecsObservable;
+  private final List<Certification>    certificationsObservable;
+
+  private final PropertyChangeListener tagListener;
   private final Comparator<MovieSet>   movieSetComparator = new MovieSetComparator();
 
   /**
@@ -96,6 +97,8 @@ public class MovieList extends AbstractModelObject {
    */
   private MovieList() {
     // create all lists
+    movieList = new ObservableElementList<>(GlazedLists.threadSafeList(new BasicEventList<Movie>()), GlazedLists.beanConnector(Movie.class));
+    movieSetList = ObservableCollections.observableList(Collections.synchronizedList(new ArrayList<MovieSet>()));
     tagsObservable = ObservableCollections.observableList(new CopyOnWriteArrayList<String>());
     videoCodecsObservable = ObservableCollections.observableList(new CopyOnWriteArrayList<String>());
     audioCodecsObservable = ObservableCollections.observableList(new CopyOnWriteArrayList<String>());
@@ -226,7 +229,7 @@ public class MovieList extends AbstractModelObject {
       if (movie.getMovieSet() != null) {
         MovieSet movieSet = movie.getMovieSet();
 
-        movieSet.removeMovie(movie);
+        movieSet.removeMovie(movie, false);
         modifiedMovieSets.add(movieSet);
         movie.setMovieSet(null);
       }
@@ -235,13 +238,6 @@ public class MovieList extends AbstractModelObject {
       }
       catch (Exception e) {
         LOGGER.error("Error removing movie from DB: " + e.getMessage());
-      }
-    }
-
-    // and now check if any of the modified moviesets are worth for deleting
-    for (MovieSet movieSet : modifiedMovieSets) {
-      if (movieSet.getMovies().isEmpty()) {
-        removeMovieSet(movieSet);
       }
     }
 
@@ -269,7 +265,7 @@ public class MovieList extends AbstractModelObject {
       movieList.remove(movie);
       if (movie.getMovieSet() != null) {
         MovieSet movieSet = movie.getMovieSet();
-        movieSet.removeMovie(movie);
+        movieSet.removeMovie(movie, false);
         modifiedMovieSets.add(movieSet);
         movie.setMovieSet(null);
       }
@@ -281,11 +277,6 @@ public class MovieList extends AbstractModelObject {
       }
     }
 
-    // and now check if any of the modified moviesets are worth for deleting
-    for (MovieSet movieSet : modifiedMovieSets) {
-      removeMovieSet(movieSet);
-    }
-
     firePropertyChange("movies", null, movieList);
     firePropertyChange("movieCount", oldValue, movieList.size());
   }
@@ -295,10 +286,7 @@ public class MovieList extends AbstractModelObject {
    * 
    * @return the movies
    */
-  public ObservableElementList<Movie> getMovies() {
-    if (movieList == null) {
-      movieList = new ObservableElementList<>(GlazedLists.threadSafeList(new BasicEventList<Movie>()), GlazedLists.beanConnector(Movie.class));
-    }
+  public List<Movie> getMovies() {
     return movieList;
   }
 
@@ -307,10 +295,9 @@ public class MovieList extends AbstractModelObject {
    */
   void loadMoviesFromDatabase(MVMap<UUID, String> movieMap, ObjectMapper objectMapper) {
     // load movies
-    movieList = new ObservableElementList<>(GlazedLists.threadSafeList(new BasicEventList<Movie>()), GlazedLists.beanConnector(Movie.class));
     ObjectReader movieObjectReader = objectMapper.readerFor(Movie.class);
 
-    for (UUID uuid : movieMap.keyList()) {
+    for (UUID uuid : new ArrayList<>(movieMap.keyList())) {
       String json = "";
       try {
         json = movieMap.get(uuid);
@@ -320,7 +307,9 @@ public class MovieList extends AbstractModelObject {
         movieList.add(movie);
       }
       catch (Exception e) {
-        LOGGER.warn("problem decoding movie json string: ", e);
+        LOGGER.warn("problem decoding movie json string: " + e.getMessage());
+        LOGGER.info("dropping corrupt movie");
+        movieMap.remove(uuid);
       }
     }
     LOGGER.info("found " + movieList.size() + " movies in database");
@@ -328,10 +317,9 @@ public class MovieList extends AbstractModelObject {
 
   void loadMovieSetsFromDatabase(MVMap<UUID, String> movieSetMap, ObjectMapper objectMapper) {
     // load movie sets
-    movieSetList = ObservableCollections.observableList(Collections.synchronizedList(new ArrayList<MovieSet>()));
     ObjectReader movieSetObjectReader = objectMapper.readerFor(MovieSet.class);
 
-    for (UUID uuid : movieSetMap.keyList()) {
+    for (UUID uuid : new ArrayList<>(movieSetMap.keyList())) {
       try {
         MovieSet movieSet = movieSetObjectReader.readValue(movieSetMap.get(uuid));
         movieSet.setDbId(uuid);
@@ -339,7 +327,9 @@ public class MovieList extends AbstractModelObject {
         movieSetList.add(movieSet);
       }
       catch (Exception e) {
-        LOGGER.warn("problem decoding movie set json string: ", e);
+        LOGGER.warn("problem decoding movie set json string: " + e.getMessage());
+        LOGGER.info("dropping corrupt movie set");
+        movieSetMap.remove(uuid);
       }
     }
 
@@ -977,9 +967,6 @@ public class MovieList extends AbstractModelObject {
    * @return the movieSetList
    */
   public List<MovieSet> getMovieSetList() {
-    if (movieSetList == null) {
-      movieSetList = ObservableCollections.observableList(Collections.synchronizedList(new ArrayList<MovieSet>()));
-    }
     return movieSetList;
   }
 
@@ -992,16 +979,6 @@ public class MovieList extends AbstractModelObject {
     List<MovieSet> sortedMovieSets = new ArrayList<>(getMovieSetList());
     Collections.sort(sortedMovieSets, movieSetComparator);
     return sortedMovieSets;
-  }
-
-  /**
-   * Sets the movie set list.
-   * 
-   * @param movieSetList
-   *          the movieSetList to set
-   */
-  public void setMovieSetList(ObservableElementList<MovieSet> movieSetList) {
-    this.movieSetList = movieSetList;
   }
 
   /**

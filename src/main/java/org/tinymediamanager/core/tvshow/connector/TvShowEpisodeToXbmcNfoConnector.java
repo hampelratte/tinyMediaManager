@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.text.Format;
-import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -164,7 +163,12 @@ public class TvShowEpisodeToXbmcNfoConnector {
     }
     String nfoFilename = mf.getBasename() + ".nfo";
     if (episode.isDisc()) {
-      nfoFilename = "VIDEO_TS.nfo"; // FIXME: BluRay?
+      if (mf.isBlurayFile()) {
+        nfoFilename = "BDMV.nfo"; // dunno, but more correct
+      }
+      if (mf.isDVDFile()) {
+        nfoFilename = "VIDEO_TS.nfo";
+      }
     }
 
     File nfoFile = new File(episode.getPath(), nfoFilename);
@@ -436,12 +440,7 @@ public class TvShowEpisodeToXbmcNfoConnector {
         writer += wri;
       }
       episode.setWriter(writer);
-
-      try {
-        episode.setFirstAired(xbmc.getAired());
-      }
-      catch (ParseException e) {
-      }
+      episode.setFirstAired(xbmc.getAired());
 
       // now there is the complicated part: tv show actors should be on the tv show level
       // episode "guests" should be on the episode level

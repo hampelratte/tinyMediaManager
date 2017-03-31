@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -83,6 +83,7 @@ import org.tinymediamanager.scraper.entities.MediaArtwork;
 import org.tinymediamanager.scraper.entities.MediaArtwork.MediaArtworkType;
 import org.tinymediamanager.scraper.entities.MediaCastMember;
 import org.tinymediamanager.scraper.entities.MediaGenres;
+import org.tinymediamanager.scraper.util.StrgUtils;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -97,7 +98,6 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 public class TvShow extends MediaEntity {
   private static final Logger                LOGGER                = LoggerFactory.getLogger(TvShow.class);
   private static final Comparator<MediaFile> MEDIA_FILE_COMPARATOR = new TvShowMediaFileComparator();
-  private static TvShowArtworkHelper         artworkHelper         = new TvShowArtworkHelper();
 
   @JsonProperty
   private String                             dataSource            = "";
@@ -190,7 +190,7 @@ public class TvShow extends MediaEntity {
             int season = Integer.parseInt(matcher.group(1));
             seasonPosters.put(season, mf);
           }
-          catch (Exception e) {
+          catch (Exception ignored) {
           }
         }
       }
@@ -198,6 +198,30 @@ public class TvShow extends MediaEntity {
 
     for (TvShowEpisode episode : episodes) {
       episode.addPropertyChangeListener(propertyChangeListener);
+    }
+  }
+
+  /**
+   * Overwrites all null/empty elements with "other" value (but might be empty also)<br>
+   * For lists, check with 'contains' and add.<br>
+   * Do NOT merge path, dateAdded, scraped, mediaFiles and other crucial properties!
+   */
+  public void merge(TvShow other) {
+    super.merge(other);
+
+    // get ours, and merge other values
+    for (TvShowEpisode ep : episodes) {
+      TvShowEpisode otherEP = other.getEpisode(ep.getSeason(), ep.getEpisode());
+      ep.merge(otherEP);
+    }
+    // get others, and simply add
+    for (TvShowEpisode otherEp : other.getEpisodes()) {
+      TvShowEpisode ourEP = getEpisode(otherEp.getSeason(), otherEp.getEpisode()); // do not do a contains check!
+      if (ourEP == null) {
+        TvShowEpisode clone = new TvShowEpisode(otherEp);
+        clone.setTvShow(this); // yes!
+        addEpisode(clone);
+      }
     }
   }
 
@@ -637,7 +661,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.POSTER);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.POSTER);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.POSTER);
           break;
         }
       }
@@ -648,7 +672,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.FANART);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.FANART);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.FANART);
           break;
         }
       }
@@ -659,7 +683,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.BANNER);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.BANNER);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.BANNER);
           break;
         }
       }
@@ -670,7 +694,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.LOGO);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.LOGO);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.LOGO);
           break;
         }
       }
@@ -681,7 +705,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.CLEARLOGO);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.CLEARLOGO);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.CLEARLOGO);
           break;
         }
       }
@@ -692,7 +716,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.CLEARART);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.CLEARART);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.CLEARART);
           break;
         }
       }
@@ -703,7 +727,7 @@ public class TvShow extends MediaEntity {
           // set url
           setArtworkUrl(art.getDefaultUrl(), MediaFileType.THUMB);
           // and download it
-          artworkHelper.downloadArtwork(this, MediaFileType.THUMB);
+          TvShowArtworkHelper.downloadArtwork(this, MediaFileType.THUMB);
           break;
         }
       }
@@ -716,7 +740,7 @@ public class TvShow extends MediaEntity {
           String url = seasonPosters.get(art.getSeason());
           if (StringUtils.isBlank(url)) {
             setSeasonPosterUrl(art.getSeason(), art.getDefaultUrl());
-            artworkHelper.downloadSeasonPoster(this, art.getSeason());
+            TvShowArtworkHelper.downloadSeasonPoster(this, art.getSeason());
             seasonPosters.put(art.getSeason(), art.getDefaultUrl());
           }
         }
@@ -734,7 +758,7 @@ public class TvShow extends MediaEntity {
    *          the chosen artwork type to be downloaded
    */
   public void downloadArtwork(MediaFileType type) {
-    artworkHelper.downloadArtwork(this, type);
+    TvShowArtworkHelper.downloadArtwork(this, type);
   }
 
   /**
@@ -744,7 +768,7 @@ public class TvShow extends MediaEntity {
    *          the season to download the poster for
    */
   public void downloadSeasonPoster(int season) {
-    artworkHelper.downloadSeasonPoster(this, season);
+    TvShowArtworkHelper.downloadSeasonPoster(this, season);
   }
 
   /**
@@ -786,11 +810,7 @@ public class TvShow extends MediaEntity {
    * @return the imdb id
    */
   public String getImdbId() {
-    Object obj = ids.get(IMDB);
-    if (obj == null) {
-      return "";
-    }
-    return obj.toString();
+    return this.getIdAsString(IMDB);
   }
 
   /**
@@ -800,9 +820,7 @@ public class TvShow extends MediaEntity {
    *          the new imdb id
    */
   public void setImdbId(String newValue) {
-    String oldValue = getImdbId();
-    ids.put(IMDB, newValue);
-    firePropertyChange("imdbId", oldValue, newValue);
+    this.setId(IMDB, newValue);
   }
 
   /**
@@ -811,11 +829,7 @@ public class TvShow extends MediaEntity {
    * @return the tvdb id
    */
   public String getTvdbId() {
-    Object obj = ids.get(TVDB);
-    if (obj == null) {
-      return "";
-    }
-    return obj.toString();
+    return this.getIdAsString(TVDB);
   }
 
   /**
@@ -825,9 +839,7 @@ public class TvShow extends MediaEntity {
    *          the new tvdb id
    */
   public void setTvdbId(String newValue) {
-    String oldValue = getTvdbId();
-    ids.put(TVDB, newValue);
-    firePropertyChange("tvdbId", oldValue, newValue);
+    this.setId(TVDB, newValue);
   }
 
   /**
@@ -836,14 +848,7 @@ public class TvShow extends MediaEntity {
    * @return the TraktTV id
    */
   public int getTraktId() {
-    int id = 0;
-    try {
-      id = Integer.parseInt(String.valueOf(ids.get(TRAKT)));
-    }
-    catch (Exception e) {
-      return 0;
-    }
-    return id;
+    return this.getIdAsInt(TRAKT);
   }
 
   /**
@@ -853,9 +858,7 @@ public class TvShow extends MediaEntity {
    *          the new TraktTV id
    */
   public void setTraktId(int newValue) {
-    int oldValue = getTraktId();
-    ids.put(TRAKT, newValue);
-    firePropertyChange("traktId", oldValue, newValue);
+    this.setId(TRAKT, newValue);
   }
 
   /**
@@ -908,8 +911,12 @@ public class TvShow extends MediaEntity {
    * @throws ParseException
    *           if string cannot be parsed!
    */
-  public void setFirstAired(String aired) throws ParseException {
-    setFirstAired(org.tinymediamanager.scraper.util.StrgUtils.parseDate(aired));
+  public void setFirstAired(String aired) {
+    try {
+      setFirstAired(StrgUtils.parseDate(aired));
+    }
+    catch (ParseException e) {
+    }
   }
 
   /**
@@ -1093,7 +1100,7 @@ public class TvShow extends MediaEntity {
   public void addActor(TvShowActor obj) {
     // and re-set TV show path to the actor
     if (StringUtils.isBlank(obj.getEntityRoot())) {
-      obj.setEntityRoot(getPathNIO().toString());
+      obj.setEntityRoot(getPathNIO());
     }
 
     actors.add(obj);
@@ -1149,7 +1156,7 @@ public class TvShow extends MediaEntity {
     // and re-set TV show path to the actors
     for (TvShowActor actor : actors) {
       if (StringUtils.isBlank(actor.getEntityRoot())) {
-        actor.setEntityRoot(getPathNIO().toString());
+        actor.setEntityRoot(getPathNIO());
       }
     }
 
@@ -1242,7 +1249,7 @@ public class TvShow extends MediaEntity {
   public List<TvShowEpisode> getEpisodesToScrape() {
     List<TvShowEpisode> episodes = new ArrayList<>();
     for (TvShowEpisode episode : new ArrayList<>(this.episodes)) {
-      if (episode.getSeason() > -1 && episode.getEpisode() > -1) {
+      if (episode.getFirstAired() != null || (episode.getSeason() > -1 && episode.getEpisode() > -1)) {
         episodes.add(episode);
       }
     }
@@ -1301,7 +1308,7 @@ public class TvShow extends MediaEntity {
    * @param url
    *          the url
    */
-  void setSeasonPosterUrl(int season, String url) {
+  public void setSeasonPosterUrl(int season, String url) {
     seasonPosterUrlMap.put(season, url);
   }
 

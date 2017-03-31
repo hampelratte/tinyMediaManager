@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -247,17 +247,15 @@ public class MovieSet extends MediaEntity {
    * 
    * @param movie
    *          the movie
+   * @param doCleanup
+   *          do an artwork cleanup or not
    */
-  public void removeMovie(Movie movie) {
-    // remove images from movie folder
-    Path imageFile = movie.getPathNIO().resolve("movieset-fanart.jpg");
-    if (Files.exists(imageFile)) {
-      Utils.deleteFileSafely(imageFile);
+  public void removeMovie(Movie movie, boolean doCleanup) {
+    // clean images files
+    if (doCleanup) {
+      MovieSetArtworkHelper.cleanMovieSetArtworkInMovieFolder(movie);
     }
-    imageFile = movie.getPathNIO().resolve("movieset-poster.jpg");
-    if (Files.exists(imageFile)) {
-      Utils.deleteFileSafely(imageFile);
-    }
+
     if (movie.getMovieSet() != null) {
       movie.setMovieSet(null);
       movie.saveToDb();
@@ -268,7 +266,9 @@ public class MovieSet extends MediaEntity {
       movieIds.remove(movie.getDbId());
 
       // update artwork
-      MovieSetArtworkHelper.updateArtwork(this);
+      if (doCleanup) {
+        MovieSetArtworkHelper.updateArtwork(this);
+      }
 
       saveToDb();
     }
@@ -305,14 +305,8 @@ public class MovieSet extends MediaEntity {
     // remove images from movie folder
     synchronized (movies) {
       for (Movie movie : movies) {
-        Path imageFile = movie.getPathNIO().resolve("movieset-fanart.jpg");
-        if (Files.exists(imageFile)) {
-          Utils.deleteFileSafely(imageFile);
-        }
-        imageFile = movie.getPathNIO().resolve("movieset-poster.jpg");
-        if (Files.exists(imageFile)) {
-          Utils.deleteFileSafely(imageFile);
-        }
+        // clean images files
+        MovieSetArtworkHelper.cleanMovieSetArtworkInMovieFolder(movie);
 
         if (movie.getMovieSet() != null) {
           movie.setMovieSet(null);
@@ -356,11 +350,23 @@ public class MovieSet extends MediaEntity {
     }
   }
 
+  /**
+   * Gets the check mark for images.<br>
+   * Assumes true, but when PosterFilename is set and we do not have a poster, return false<br>
+   * same for fanarts.
+   * 
+   * @return the checks for images
+   */
   public Boolean getHasImages() {
-    if (!StringUtils.isEmpty(getArtworkFilename(MediaFileType.POSTER)) && !StringUtils.isEmpty(getArtworkFilename(MediaFileType.FANART))) {
-      return true;
+    if (!MovieModuleManager.MOVIE_SETTINGS.getMoviePosterFilenames().isEmpty() && StringUtils.isEmpty(getArtworkFilename(MediaFileType.POSTER))) {
+      return false;
     }
-    return false;
+
+    if (!MovieModuleManager.MOVIE_SETTINGS.getMovieFanartFilenames().isEmpty() && StringUtils.isEmpty(getArtworkFilename(MediaFileType.FANART))) {
+      return false;
+    }
+
+    return true;
   }
 
   public List<Path> getImagesToCache() {

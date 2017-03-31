@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -365,7 +365,7 @@ public class MovieSetTreeModel implements TreeModel {
         Movie movie = (Movie) node.getUserObject();
         MovieSet movieSet = movie.getMovieSet();
         if (movieSet != null) {
-          movieSet.removeMovie(movie);
+          movieSet.removeMovie(movie, true);
         }
 
         nodeMap.remove(movie);

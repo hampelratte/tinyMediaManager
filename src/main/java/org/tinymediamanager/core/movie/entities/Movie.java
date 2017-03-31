@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -198,6 +198,72 @@ public class Movie extends MediaEntity {
     super();
   }
 
+  /**
+   * Overwrites all null/empty elements with "other" value (but might be also empty)<br>
+   * For lists, check with 'contains' and add.<br>
+   * Do NOT merge path, dateAdded, scraped, mediaFiles and other crucial properties!
+   * 
+   * @param other
+   */
+
+  public void merge(Movie other) {
+    if (other == null) {
+      return;
+    }
+    super.merge(other);
+
+    this.sortTitle = StringUtils.isEmpty(this.sortTitle) ? other.getSortTitle() : this.sortTitle;
+    this.tagline = StringUtils.isEmpty(this.tagline) ? other.getTagline() : this.tagline;
+    this.director = StringUtils.isEmpty(this.director) ? other.getDirector() : this.director;
+    this.writer = StringUtils.isEmpty(this.writer) ? other.getWriter() : this.writer;
+    this.spokenLanguages = StringUtils.isEmpty(this.spokenLanguages) ? other.getSpokenLanguages() : this.spokenLanguages;
+    this.country = StringUtils.isEmpty(this.country) ? other.getCountry() : this.country;
+    this.titleSortable = StringUtils.isEmpty(this.titleSortable) ? other.getTitleSortable() : this.titleSortable;
+
+    this.runtime = this.runtime == 0 ? other.getRuntime() : this.runtime;
+    this.top250 = this.top250 == 0 ? other.getTop250() : this.top250;
+    this.releaseDate = this.releaseDate == null ? other.getReleaseDate() : this.releaseDate;
+    this.movieSet = this.movieSet == null ? other.getMovieSet() : this.movieSet;
+    this.mediaSource = this.mediaSource == MediaSource.UNKNOWN ? other.getMediaSource() : this.mediaSource;
+    this.certification = this.certification == Certification.NOT_RATED ? other.getCertification() : this.certification;
+    this.edition = this.edition == MovieEdition.NONE ? other.getEdition() : this.edition;
+
+    for (MediaGenres genre : other.getGenres()) {
+      addGenre(genre); // already checks dupes
+    }
+    for (MovieActor actor : other.getActors()) {
+      if (!this.actors.contains(actor)) {
+        this.actors.add(actor);
+      }
+    }
+    for (MovieProducer prod : other.getProducers()) {
+      if (!this.producers.contains(prod)) {
+        this.producers.add(prod);
+      }
+    }
+    for (MovieTrailer trail : other.getTrailer()) {
+      if (!this.trailer.contains(trail)) {
+        this.trailer.add(trail);
+      }
+    }
+
+    for (String key : other.getTags()) {
+      if (!this.tags.contains(key)) {
+        this.tags.add(key);
+      }
+    }
+    for (String key : other.getExtraThumbs()) {
+      if (!this.extraThumbs.contains(key)) {
+        this.extraThumbs.add(key);
+      }
+    }
+    for (String key : other.getExtraFanarts()) {
+      if (!this.extraFanarts.contains(key)) {
+        this.extraFanarts.add(key);
+      }
+    }
+  }
+
   @Override
   protected Comparator<MediaFile> getMediaFileComparator() {
     return MEDIA_FILE_COMPARATOR;
@@ -282,15 +348,22 @@ public class Movie extends MediaEntity {
   }
 
   /**
-   * Gets the checks for images.
+   * Gets the check mark for images.<br>
+   * Assumes true, but when PosterFilename is set and we do not have a poster, return false<br>
+   * same for fanarts.
    * 
    * @return the checks for images
    */
   public Boolean getHasImages() {
-    if (!StringUtils.isEmpty(getArtworkFilename(MediaFileType.POSTER)) && !StringUtils.isEmpty(getArtworkFilename(MediaFileType.FANART))) {
-      return true;
+    if (!MovieModuleManager.MOVIE_SETTINGS.getMoviePosterFilenames().isEmpty() && StringUtils.isEmpty(getArtworkFilename(MediaFileType.POSTER))) {
+      return false;
     }
-    return false;
+
+    if (!MovieModuleManager.MOVIE_SETTINGS.getMovieFanartFilenames().isEmpty() && StringUtils.isEmpty(getArtworkFilename(MediaFileType.FANART))) {
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -355,7 +428,7 @@ public class Movie extends MediaEntity {
   public void addActor(MovieActor obj) {
     // and re-set movie path the actors
     if (StringUtils.isBlank(obj.getEntityRoot())) {
-      obj.setEntityRoot(getPathNIO().toString());
+      obj.setEntityRoot(getPathNIO());
     }
 
     actors.add(obj);
@@ -434,18 +507,36 @@ public class Movie extends MediaEntity {
   public void setTags(List<String> newTags) {
     // two way sync of tags
 
-    // first, add new ones
-    for (String tag : newTags) {
-      if (!this.tags.contains(tag)) {
-        this.tags.add(tag);
+    // first remove unused
+    for (int i = tags.size() - 1; i >= 0; i--) {
+      String tag = tags.get(i);
+      if (!newTags.contains(tag)) {
+        tags.remove(tag);
       }
     }
 
-    // second remove old ones
-    for (int i = this.tags.size() - 1; i >= 0; i--) {
-      String tag = this.tags.get(i);
-      if (!newTags.contains(tag)) {
-        this.tags.remove(tag);
+    // second, add new ones in the right order
+    for (int i = 0; i < newTags.size(); i++) {
+      String tag = newTags.get(i);
+      if (!tags.contains(tag)) {
+        try {
+          tags.add(i, tag);
+        }
+        catch (IndexOutOfBoundsException e) {
+          tags.add(tag);
+        }
+      }
+      else {
+        int indexOldList = tags.indexOf(tag);
+        if (i != indexOldList) {
+          String oldTag = tags.remove(indexOldList);
+          try {
+            tags.add(i, oldTag);
+          }
+          catch (IndexOutOfBoundsException e) {
+            tags.add(oldTag);
+          }
+        }
       }
     }
 
@@ -580,11 +671,7 @@ public class Movie extends MediaEntity {
    * @return the imdb id
    */
   public String getImdbId() {
-    Object obj = ids.get(IMDB);
-    if (obj == null || !Utils.isValidImdbId(obj.toString())) {
-      return "";
-    }
-    return obj.toString();
+    return this.getIdAsString(IMDB);
   }
 
   /**
@@ -593,14 +680,7 @@ public class Movie extends MediaEntity {
    * @return the tmdb id
    */
   public int getTmdbId() {
-    int id = 0;
-    try {
-      id = Integer.parseInt(String.valueOf(ids.get(TMDB)));
-    }
-    catch (Exception e) {
-      return 0;
-    }
-    return id;
+    return this.getIdAsInt(TMDB);
   }
 
   /**
@@ -610,9 +690,7 @@ public class Movie extends MediaEntity {
    *          the new tmdb id
    */
   public void setTmdbId(int newValue) {
-    int oldValue = getTmdbId();
-    ids.put(TMDB, newValue);
-    firePropertyChange("tmdbId", oldValue, newValue);
+    this.setId(TMDB, newValue);
   }
 
   /**
@@ -621,14 +699,7 @@ public class Movie extends MediaEntity {
    * @return the TraktTV id
    */
   public int getTraktId() {
-    int id = 0;
-    try {
-      id = Integer.parseInt(String.valueOf(ids.get(TRAKT)));
-    }
-    catch (Exception e) {
-      return 0;
-    }
-    return id;
+    return this.getIdAsInt(TRAKT);
   }
 
   /**
@@ -638,9 +709,7 @@ public class Movie extends MediaEntity {
    *          the new TraktTV id
    */
   public void setTraktId(int newValue) {
-    int oldValue = getTraktId();
-    ids.put(TRAKT, newValue);
-    firePropertyChange("traktId", oldValue, newValue);
+    this.setId(TRAKT, newValue);
   }
 
   /**
@@ -755,12 +824,7 @@ public class Movie extends MediaEntity {
    *          the new imdb id
    */
   public void setImdbId(String newValue) {
-    if (!Utils.isValidImdbId(newValue)) {
-      newValue = "";
-    }
-    String oldValue = getImdbId();
-    ids.put(IMDB, newValue);
-    firePropertyChange("imdbId", oldValue, newValue);
+    this.setId(IMDB, newValue);
   }
 
   /**
@@ -1151,7 +1215,7 @@ public class Movie extends MediaEntity {
     // and re-set movie path to the actors
     for (MovieActor actor : actors) {
       if (StringUtils.isBlank(actor.getEntityRoot())) {
-        actor.setEntityRoot(getPathNIO().toString());
+        actor.setEntityRoot(getPathNIO());
       }
     }
 
@@ -1416,30 +1480,50 @@ public class Movie extends MediaEntity {
   /**
    * Sets the genres.
    * 
-   * @param genres
+   * @param newGenres
    *          the new genres
    */
   @JsonSetter
-  public void setGenres(List<MediaGenres> genres) {
+  public void setGenres(List<MediaGenres> newGenres) {
     // two way sync of genres
 
-    // first, add new ones
-    for (MediaGenres genre : genres) {
-      if (!this.genresForAccess.contains(genre)) {
-        this.genresForAccess.add(genre);
-        if (!this.genres.contains(genre.name())) {
-          this.genres.add(genre.name());
+    // first remove old ones
+    for (int i = genresForAccess.size() - 1; i >= 0; i--) {
+      MediaGenres genre = genresForAccess.get(i);
+      if (!newGenres.contains(genre)) {
+        genresForAccess.remove(genre);
+      }
+    }
+
+    // second, add new ones in the right order
+    for (int i = 0; i < newGenres.size(); i++) {
+      MediaGenres genre = newGenres.get(i);
+      if (!genresForAccess.contains(genre)) {
+        try {
+          genresForAccess.add(i, genre);
+        }
+        catch (IndexOutOfBoundsException e) {
+          genresForAccess.add(genre);
+        }
+      }
+      else {
+        int indexOldList = genresForAccess.indexOf(genre);
+        if (i != indexOldList) {
+          MediaGenres oldGenre = genresForAccess.remove(indexOldList);
+          try {
+            genresForAccess.add(i, oldGenre);
+          }
+          catch (IndexOutOfBoundsException e) {
+            genresForAccess.add(oldGenre);
+          }
         }
       }
     }
 
-    // second remove old ones
-    for (int i = this.genresForAccess.size() - 1; i >= 0; i--) {
-      MediaGenres genre = this.genresForAccess.get(i);
-      if (!genres.contains(genre)) {
-        this.genresForAccess.remove(genre);
-        this.genres.remove(genre.name());
-      }
+    // third, build new genre as string list
+    genres.clear();
+    for (MediaGenres genre : genresForAccess) {
+      genres.add(genre.name());
     }
 
     firePropertyChange(GENRE, null, genres);
@@ -1610,7 +1694,7 @@ public class Movie extends MediaEntity {
    */
   public void removeFromMovieSet() {
     if (movieSet != null) {
-      movieSet.removeMovie(this);
+      movieSet.removeMovie(this, true);
     }
     setMovieSet(null);
   }
@@ -1821,8 +1905,12 @@ public class Movie extends MediaEntity {
   /**
    * convenient method to set the release date (parsed from string).
    */
-  public void setReleaseDate(String dateAsString) throws ParseException {
-    setReleaseDate(StrgUtils.parseDate(dateAsString));
+  public void setReleaseDate(String dateAsString) {
+    try {
+      setReleaseDate(StrgUtils.parseDate(dateAsString));
+    }
+    catch (ParseException e) {
+    }
   }
 
   public Date getLastWatched() {
@@ -1852,8 +1940,26 @@ public class Movie extends MediaEntity {
     }
   }
 
+  /**
+   * get all video files for that movie
+   *
+   * @return a list of all video files
+   */
   public List<MediaFile> getVideoFiles() {
     return getMediaFiles(MediaFileType.VIDEO);
+  }
+
+  /**
+   * get the first video file for this entity
+   * 
+   * @return the first video file
+   */
+  public MediaFile getFirstVideoFile() {
+    List<MediaFile> videoFiles = getVideoFiles();
+    if (!videoFiles.isEmpty()) {
+      return videoFiles.get(0);
+    }
+    return null;
   }
 
   /**
@@ -1896,7 +2002,7 @@ public class Movie extends MediaEntity {
   public void addProducer(MovieProducer obj) {
     // and re-set movie path of the producer
     if (StringUtils.isBlank(obj.getEntityRoot())) {
-      obj.setEntityRoot(getPathNIO().toString());
+      obj.setEntityRoot(getPathNIO());
     }
 
     producers.add(obj);
@@ -1949,7 +2055,7 @@ public class Movie extends MediaEntity {
     // and re-set movie path to the producers
     for (MovieProducer producer : producers) {
       if (StringUtils.isBlank(producer.getEntityRoot())) {
-        producer.setEntityRoot(getPathNIO().toString());
+        producer.setEntityRoot(getPathNIO());
       }
     }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012 - 2016 Manuel Laggner
+ * Copyright 2012 - 2017 Manuel Laggner
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,8 +44,10 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -69,7 +71,6 @@ import org.tinymediamanager.ReleaseInfo;
 import org.tinymediamanager.core.Message.MessageLevel;
 import org.tinymediamanager.scraper.http.Url;
 import org.tinymediamanager.scraper.util.StrgUtils;
-import org.tinymediamanager.ui.TmmWindowSaver;
 
 /**
  * The Class Utils.
@@ -81,7 +82,7 @@ public class Utils {
   private static final Pattern localePattern         = Pattern.compile("messages_(.{2})_?(.{2}){0,1}\\.properties", Pattern.CASE_INSENSITIVE);
 
   // <cd/dvd/part/pt/disk/disc> <0-N>
-  private static final Pattern stackingPattern1      = Pattern.compile("(.*?)[ _.-]+((?:cd|dvd|p(?:ar)?t|dis[ck])[ _.-]*[0-9]+)(\\.[^.]+)$",
+  private static final Pattern stackingPattern1      = Pattern.compile("(.*?)[ _.-]+((?:cd|dvd|p(?:ar)?t|dis[ck])[ _.-]*[1-9]{1})(\\.[^.]+)$",
       Pattern.CASE_INSENSITIVE);
 
   // <cd/dvd/part/pt/disk/disc> <a-d>
@@ -92,11 +93,11 @@ public class Utils {
   private static final Pattern stackingPattern3      = Pattern.compile("(.*?)[_.-]+([a-d])(\\.[^.]+)$", Pattern.CASE_INSENSITIVE);
 
   // moviename-1of2.avi, moviename-1 of 2.avi
-  private static final Pattern stackingPattern4      = Pattern.compile("(.*?)[ \\(_.-]+([0-9][ .]?of[ .]?[0-9])[ \\)_-]?(\\.[^.]+)$",
+  private static final Pattern stackingPattern4      = Pattern.compile("(.*?)[ \\(_.-]+([1-9][ .]?of[ .]?[1-9])[ \\)_-]?(\\.[^.]+)$",
       Pattern.CASE_INSENSITIVE);
 
-  // folder stacking marker <cd/dvd/part/pt/disk/disc> <0-N>
-  private static final Pattern folderStackingPattern = Pattern.compile("(.*?)[ _.-]*((?:cd|dvd|p(?:ar)?t|dis[ck])[ _.-]*[0-9]+(.*?))$",
+  // folder stacking marker <cd/dvd/part/pt/disk/disc> <0-N> - must be last part
+  private static final Pattern folderStackingPattern = Pattern.compile("(.*?)[ _.-]*((?:cd|dvd|p(?:ar)?t|dis[ck])[ _.-]*[1-9]{1})$",
       Pattern.CASE_INSENSITIVE);
 
   /**
@@ -295,7 +296,7 @@ public class Utils {
     if (!StringUtils.isEmpty(filename)) {
       Matcher m = folderStackingPattern.matcher(filename);
       if (m.matches()) {
-        return m.group(1) + m.group(3); // just return String w/o stacking
+        return m.group(1); // just return String w/o stacking
       }
     }
     return filename;
@@ -503,7 +504,7 @@ public class Utils {
                   + "&je=1"
                   + session
                   + "&ul=" + getEncProp("user.language") + "-" + getEncProp("user.country")  // use real system language
-                  + "&vp=" + TmmWindowSaver.getInstance().getInteger("mainWindowW") + "x" + TmmWindowSaver.getInstance().getInteger("mainWindowH")
+                  + "&vp=" + TmmProperties.getInstance().getPropertyAsInteger("mainWindowW") + "x" + TmmProperties.getInstance().getPropertyAsInteger("mainWindowH")
                   + "&cd1=" + getEncProp("os.name") 
                   + "&cd2=" + getEncProp("os.arch") 
                   + "&cd3=" + getEncProp("java.specification.version") // short; eg 1.7
@@ -901,23 +902,21 @@ public class Utils {
    * @return true/false if successful
    */
   public static boolean deleteFileWithBackup(Path file, String datasource) {
-    String fn = file.toAbsolutePath().toString();
-    if (!fn.startsWith(datasource)) { // safety
-      LOGGER.warn("could not delete file '" + fn + "': datasource '" + datasource + "' does not match");
+    Path ds = Paths.get(datasource);
+
+    if (!file.startsWith(ds)) { // safety
+      LOGGER.warn("could not delete file '" + file + "': datasource '" + datasource + "' does not match");
       return false;
     }
     if (Files.isDirectory(file)) {
-      LOGGER.warn("could not delete file '" + fn + "': file is a directory!");
+      LOGGER.warn("could not delete file '" + file + "': file is a directory!");
       return false;
     }
-
-    // inject backup path
-    fn = fn.replace(datasource, datasource + FileSystems.getDefault().getSeparator() + Constants.BACKUP_FOLDER);
 
     // backup
     try {
       // create path
-      Path backup = Paths.get(fn);
+      Path backup = Paths.get(ds.toAbsolutePath().toString(), Constants.BACKUP_FOLDER, ds.relativize(file).toString());
       if (!Files.exists(backup.getParent())) {
         Files.createDirectories(backup.getParent());
       }
@@ -968,23 +967,21 @@ public class Utils {
    */
   public static boolean deleteDirectorySafely(Path folder, String datasource) {
     folder = folder.toAbsolutePath();
-    String fn = folder.toAbsolutePath().toString();
+    Path ds = Paths.get(datasource);
+
     if (!Files.isDirectory(folder)) {
       LOGGER.warn("Will not delete folder '" + folder + "': folder is a file, NOT a directory!");
       return false;
     }
-    if (!folder.toString().startsWith(datasource)) { // safety
+    if (!folder.startsWith(ds)) { // safety
       LOGGER.warn("Will not delete folder '" + folder + "': datasource '" + datasource + "' does not match");
       return false;
     }
 
-    // inject backup path
-    fn = fn.replace(datasource, datasource + FileSystems.getDefault().getSeparator() + Constants.BACKUP_FOLDER);
-
     // backup
     try {
       // create path
-      Path backup = Paths.get(fn);
+      Path backup = Paths.get(ds.toAbsolutePath().toString(), Constants.BACKUP_FOLDER, ds.relativize(folder).toString());
       if (!Files.exists(backup.getParent())) {
         Files.createDirectories(backup.getParent());
       }
@@ -1137,7 +1134,7 @@ public class Utils {
    * @param keep
    *          keep last X versions
    */
-  public static final void deleteOldBackupFile(Path file, int keep) {
+  public static void deleteOldBackupFile(Path file, int keep) {
     ArrayList<Path> al = new ArrayList<>();
     String fname = file.getFileName().toString();
     try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(Paths.get("backup"))) {
@@ -1303,6 +1300,20 @@ public class Utils {
   }
 
   /**
+   * check whether a folder is empty or not
+   * 
+   * @param folder
+   *          the folder to be checked
+   * @return true/false
+   * @throws IOException
+   */
+  public static boolean isFolderEmpty(final Path folder) throws IOException {
+    try (DirectoryStream<Path> dirStream = Files.newDirectoryStream(folder)) {
+      return !dirStream.iterator().hasNext();
+    }
+  }
+
+  /**
    * Creates (or adds) a file to a ZIP
    * 
    * @param zipFile
@@ -1437,6 +1448,7 @@ public class Utils {
    * @param text
    *          the text to be written into the file
    * @throws IOException
+   *           any {@link IOException} thrown
    */
   public static void writeStringToFile(Path file, String text) throws IOException {
     byte[] buf = text.getBytes(StandardCharsets.UTF_8);
@@ -1450,6 +1462,7 @@ public class Utils {
    *          the file to read the string from
    * @return the read string
    * @throws IOException
+   *           any {@link IOException} thrown
    */
   public static String readFileToString(Path file) throws IOException {
     byte[] fileArray = Files.readAllBytes(file);
@@ -1464,6 +1477,7 @@ public class Utils {
    * @param to
    *          destination
    * @throws IOException
+   *           any {@link IOException} thrown
    */
   public static void copyDirectoryRecursive(Path from, Path to) throws IOException {
     LOGGER.info("Copyin complete directory from " + from + " to " + to);
@@ -1505,6 +1519,35 @@ public class Utils {
     }
     else {
       Collections.sort(list, comparator);
+    }
+  }
+
+  /**
+   * logback does not clean older log files than 32 days in the past. We have to clean the log files too
+   */
+  public static void cleanOldLogs() {
+    Pattern pattern = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    Calendar cal = Calendar.getInstance();
+    cal.add(Calendar.DATE, -30);
+    Date dateBefore30Days = cal.getTime();
+
+    // the log file pattern is logs/tmm.%d.%i.log.gz
+    try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(Paths.get("logs"))) {
+      for (Path path : directoryStream) {
+        Matcher matcher = pattern.matcher(path.getFileName().toString());
+        if (matcher.find()) {
+          try {
+            Date date = StrgUtils.parseDate(matcher.group());
+            if (dateBefore30Days.after(date)) {
+              Utils.deleteFileSafely(path);
+            }
+          }
+          catch (Exception ignored) {
+          }
+        }
+      }
+    }
+    catch (IOException ex) {
     }
   }
 
